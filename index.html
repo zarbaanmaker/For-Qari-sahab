@@ -1,0 +1,311 @@
+##########################################################
+# FILE 1: index.html   (JavaScript + HTML + CSS together)
+##########################################################
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qari Sahab Academy</title>
+<style>
+:root{--bg:#f3f7f4;--ink:#13261d;--green:#0f5c3a;--gold:#b8892b;--card:#fff;--line:#d3e0d8}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1a14;--ink:#e6f0ea;--green:#3fbf86;--gold:#e0b552;--card:#16271f;--line:#2a4034}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Georgia,serif}
+header{padding:2.5rem 1.2rem 1.5rem;text-align:center;border-bottom:3px solid var(--gold)}
+h1{margin:0;font-size:2rem;color:var(--green)}
+.ar{font-size:2rem;margin:.4rem 0;color:var(--gold);font-family:"Amiri","Noto Naskh Arabic",serif}
+main{max-width:480px;margin:0 auto;padding:1.2rem}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1.2rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem}
+.tabs button{flex:1;background:none;border:0;border-bottom:2px solid var(--line);padding:.6rem;font:inherit;color:var(--ink);cursor:pointer}
+.tabs .on{border-color:var(--green);color:var(--green);font-weight:bold}
+input,textarea{width:100%;padding:.7rem;margin:.35rem 0;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+button{font:inherit}
+form button,#ladd{width:100%;padding:.75rem;margin-top:.5rem;background:var(--green);color:#fff;border:0;border-radius:6px;cursor:pointer}
+.ghost{margin-top:1rem;background:none;border:1px solid var(--line);padding:.5rem 1rem;border-radius:6px;color:var(--ink);cursor:pointer}
+#msg{min-height:1.4em;color:var(--gold);margin:.5rem 0 0}
+ul{padding:0;list-style:none}
+li{padding:.7rem 0;border-bottom:1px solid var(--line)}
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Qari Sahab Academy</h1>
+  <p class="ar" lang="ar" dir="rtl">اقرأ باسم ربك</p>
+  <p>Learn Quran with tajweed, online, at your own pace.</p>
+</header>
+<main>
+  <section id="auth">
+    <div class="tabs">
+      <button id="tab-in" class="on">Sign in</button>
+      <button id="tab-up">Create account</button>
+    </div>
+    <form id="form">
+      <input id="name" placeholder="Full name" hidden autocomplete="name">
+      <input id="email" type="email" placeholder="Email" required autocomplete="email">
+      <input id="password" type="password" placeholder="Password (6+ characters)" required minlength="6">
+      <button id="submit" type="submit">Sign in</button>
+      <p id="msg" role="status"></p>
+    </form>
+  </section>
+  <section id="dash" hidden>
+    <h2 id="hello"></h2>
+    <div id="teacher" hidden>
+      <h3>Add a lesson</h3>
+      <input id="ltitle" placeholder="Lesson title">
+      <textarea id="ldetail" placeholder="Details, page or ayah range"></textarea>
+      <button id="ladd">Add lesson</button>
+    </div>
+    <h3>Lessons</h3>
+    <ul id="lessons"></ul>
+    <button id="out" class="ghost">Sign out</button>
+  </section>
+</main>
+<script>
+// Change this to your deployed backend URL
+const API = "http://localhost:5000/api";
+const $ = id => document.getElementById(id);
+let signup = false;
+
+function setMode(up) {
+  signup = up;
+  $("name").hidden = !up;
+  $("tab-up").classList.toggle("on", up);
+  $("tab-in").classList.toggle("on", !up);
+  $("submit").textContent = up ? "Create account" : "Sign in";
+  $("msg").textContent = "";
+}
+$("tab-in").onclick = () => setMode(false);
+$("tab-up").onclick = () => setMode(true);
+
+async function call(path, method = "GET", body) {
+  const token = localStorage.getItem("token");
+  const res = await fetch(API + path, {
+    method,
+    headers: { "Content-Type": "application/json", ...(token && { Authorization: "Bearer " + token }) },
+    body: body && JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Something went wrong.");
+  return data;
+}
+
+$("form").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const email = $("email").value, password = $("password").value;
+    if (signup) {
+      const r = await call("/signup", "POST", { name: $("name").value, email, password });
+      setMode(false);
+      $("msg").textContent = r.message;
+    } else {
+      const r = await call("/signin", "POST", { email, password });
+      localStorage.setItem("token", r.token);
+      localStorage.setItem("name", r.name);
+      localStorage.setItem("role", r.role);
+      showDash();
+    }
+  } catch (err) { $("msg").textContent = err.message; }
+};
+
+async function showDash() {
+  $("auth").hidden = true; $("dash").hidden = false;
+  $("hello").textContent = "Assalamu alaikum, " + localStorage.getItem("name");
+  $("teacher").hidden = localStorage.getItem("role") !== "teacher";
+  try {
+    const list = await call("/lessons");
+    $("lessons").innerHTML = "";
+    if (!list.length) $("lessons").innerHTML = "<li>No lessons yet. Check back soon.</li>";
+    list.forEach(l => {
+      const li = document.createElement("li");
+      const b = document.createElement("strong");
+      b.textContent = l.title;
+      li.append(b, document.createElement("br"), l.detail + " (" + l.created + ")");
+      $("lessons").append(li);
+    });
+  } catch { signOut(); }
+}
+
+$("ladd").onclick = async () => {
+  await call("/lessons", "POST", { title: $("ltitle").value, detail: $("ldetail").value });
+  $("ltitle").value = $("ldetail").value = "";
+  showDash();
+};
+
+function signOut() {
+  localStorage.clear();
+  $("dash").hidden = true;
+  $("auth").hidden = false;
+}
+$("out").onclick = signOut;
+if (localStorage.getItem("token")) showDash();
+</script>
+</body>
+</html>
+
+
+##########################################################
+# FILE 2: app.py   (Python backend)
+# Install: pip install flask flask-cors werkzeug
+# Run:     python app.py
+##########################################################
+import os, sqlite3, secrets
+from datetime import datetime, timedelta
+from functools import wraps
+from flask import Flask, request, jsonify, g
+from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
+
+app = Flask(__name__)
+CORS(app)
+DB = os.path.join(os.path.dirname(__file__), "academy.db")
+
+def db():
+    if "db" not in g:
+        g.db = sqlite3.connect(DB)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+@app.teardown_appcontext
+def close_db(_):
+    d = g.pop("db", None)
+    if d: d.close()
+
+def init_db():
+    with sqlite3.connect(DB) as c:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL, role TEXT DEFAULT 'student');
+        CREATE TABLE IF NOT EXISTS sessions(
+            token TEXT PRIMARY KEY, user_id INTEGER, expires TEXT);
+        CREATE TABLE IF NOT EXISTS lessons(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT, detail TEXT, created TEXT);
+        """)
+
+def auth(role=None):
+    def deco(f):
+        @wraps(f)
+        def wrap(*a, **k):
+            token = request.headers.get("Authorization", "").replace("Bearer ", "")
+            row = db().execute(
+                "SELECT u.*, s.expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?",
+                (token,)).fetchone()
+            if not row or datetime.fromisoformat(row["expires"]) < datetime.utcnow():
+                return jsonify(error="Please sign in again."), 401
+            if role and row["role"] != role:
+                return jsonify(error="Teacher access only."), 403
+            g.user = row
+            return f(*a, **k)
+        return wrap
+    return deco
+
+@app.post("/api/signup")
+def signup():
+    d = request.get_json(force=True)
+    name = d.get("name", "").strip()
+    email = d.get("email", "").strip().lower()
+    pw = d.get("password", "")
+    if not name or "@" not in email or len(pw) < 6:
+        return jsonify(error="Enter a name, a valid email and a password of 6+ characters."), 400
+    try:
+        db().execute("INSERT INTO users(name,email,password) VALUES(?,?,?)",
+                     (name, email, generate_password_hash(pw)))
+        db().commit()
+    except sqlite3.IntegrityError:
+        return jsonify(error="This email is already registered."), 409
+    return jsonify(message="Account created. You can sign in now."), 201
+
+@app.post("/api/signin")
+def signin():
+    d = request.get_json(force=True)
+    u = db().execute("SELECT * FROM users WHERE email=?",
+                     (d.get("email", "").strip().lower(),)).fetchone()
+    if not u or not check_password_hash(u["password"], d.get("password", "")):
+        return jsonify(error="Email or password is wrong."), 401
+    token = secrets.token_hex(32)
+    db().execute("INSERT INTO sessions VALUES(?,?,?)",
+                 (token, u["id"], (datetime.utcnow() + timedelta(days=7)).isoformat()))
+    db().commit()
+    return jsonify(token=token, name=u["name"], role=u["role"])
+
+@app.get("/api/lessons")
+@auth()
+def lessons():
+    rows = db().execute("SELECT * FROM lessons ORDER BY id DESC").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.post("/api/lessons")
+@auth("teacher")
+def add_lesson():
+    d = request.get_json(force=True)
+    db().execute("INSERT INTO lessons(title,detail,created) VALUES(?,?,?)",
+                 (d.get("title", ""), d.get("detail", ""),
+                  datetime.utcnow().date().isoformat()))
+    db().commit()
+    return jsonify(message="Lesson added."), 201
+
+if __name__ == "__main__":
+    init_db()
+    app.run(port=5000, debug=True)
+
+
+##########################################################
+# FILE 3: attendance.cpp   (C++ attendance + fee tracker)
+# Build: g++ -std=c++17 attendance.cpp -o attendance
+##########################################################
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string>
+using namespace std;
+
+struct Student { string name; int present = 0, total = 0; double fee = 0; };
+const string FILE_NAME = "students.csv";
+
+vector<Student> load() {
+    vector<Student> v; ifstream f(FILE_NAME); string line;
+    while (getline(f, line)) {
+        stringstream ss(line); Student s; string a, b, c;
+        getline(ss, s.name, ','); getline(ss, a, ',');
+        getline(ss, b, ','); getline(ss, c, ',');
+        if (s.name.empty()) continue;
+        s.present = stoi(a); s.total = stoi(b); s.fee = stod(c);
+        v.push_back(s);
+    }
+    return v;
+}
+
+void save(const vector<Student>& v) {
+    ofstream f(FILE_NAME);
+    for (auto& s : v)
+        f << s.name << ',' << s.present << ',' << s.total << ',' << s.fee << '\n';
+}
+
+int main() {
+    auto students = load(); int choice;
+    do {
+        cout << "\n1 Add student\n2 Mark class\n3 Report\n0 Exit\n> ";
+        cin >> choice; cin.ignore();
+        if (choice == 1) {
+            Student s; cout << "Name: "; getline(cin, s.name);
+            cout << "Monthly fee: "; cin >> s.fee;
+            students.push_back(s); save(students);
+        } else if (choice == 2) {
+            for (auto& s : students) {
+                char p; cout << s.name << " present? (y/n): "; cin >> p;
+                s.total++; if (p == 'y' || p == 'Y') s.present++;
+            }
+            save(students);
+        } else if (choice == 3) {
+            for (auto& s : students)
+                cout << s.name << " | " << s.present << "/" << s.total
+                     << " classes | fee " << s.fee << "\n";
+        }
+    } while (choice != 0);
+}
